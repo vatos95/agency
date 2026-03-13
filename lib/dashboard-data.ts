@@ -78,6 +78,15 @@ export interface MentorWorkspaceData {
     reputation: string;
     stage: string;
   }>;
+  recentMissions: Array<{
+    id: string;
+    title: string;
+    designerName: string;
+    clientName: string;
+    status: string;
+    deadline: string;
+    budget: string;
+  }>;
 }
 
 function toInitials(displayName: string) {
@@ -153,6 +162,14 @@ function translateUrgency(urgency: MessageUrgency) {
   if (urgency === "priority") return "Prioritaire";
   if (urgency === "today") return "Aujourd'hui";
   return "Normale";
+}
+
+function translateMissionStatus(status: MissionStatus) {
+  if (status === "active") return "En cours";
+  if (status === "delivery_due") return "A livrer";
+  if (status === "revision") return "Revision";
+  if (status === "validated") return "Validee";
+  return "Nouvelle";
 }
 
 function getCareerStageKey(value: string): CareerStageKey {
@@ -518,7 +535,8 @@ export async function getMentorWorkspaceData(
     return null;
   }
 
-  const [designersResult, clientsResult, missionsResult, messagesResult] = await Promise.all([
+  const [designersResult, clientsResult, missionsResult, messagesResult, recentMissionsResult] =
+    await Promise.all([
     supabase
       .from("profiles")
       .select("id, display_name, email, balance_cents, reputation, career_stage")
@@ -527,6 +545,14 @@ export async function getMentorWorkspaceData(
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("missions").select("id", { count: "exact", head: true }),
     supabase.from("messages").select("id", { count: "exact", head: true }),
+    supabase
+      .from("missions")
+      .select(
+        "id, title, status, deadline_at, budget_cents, client:clients(name), designer:profiles!missions_designer_id_fkey(display_name)"
+      )
+      .eq("mentor_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(5),
   ]);
 
   return {
@@ -546,5 +572,26 @@ export async function getMentorWorkspaceData(
       reputation: `${Number(designer.reputation ?? 0)} / 100`,
       stage: String(designer.career_stage ?? ""),
     })),
+    recentMissions: ((recentMissionsResult.data ?? []) as Array<Record<string, unknown>>).map(
+      (mission) => ({
+        id: String(mission.id ?? ""),
+        title: String(mission.title ?? ""),
+        designerName:
+          typeof mission.designer === "object" &&
+          mission.designer &&
+          "display_name" in mission.designer
+            ? String(mission.designer.display_name ?? "")
+            : "",
+        clientName:
+          typeof mission.client === "object" &&
+          mission.client &&
+          "name" in mission.client
+            ? String(mission.client.name ?? "")
+            : "",
+        status: translateMissionStatus((mission.status as MissionStatus) ?? "new"),
+        deadline: formatDeadline((mission.deadline_at as string | null) ?? null),
+        budget: formatCurrency(Number(mission.budget_cents ?? 0)),
+      })
+    ),
   };
 }
