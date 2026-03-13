@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { createClient } from "@/lib/supabase/server";
 import { getMentorWorkspaceData } from "@/lib/dashboard-data";
-import { createMissionAction } from "./actions";
+import { createMissionAction, reviewDeliveryAction } from "./actions";
 
 function fieldClassName() {
   return "flex h-11 w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
@@ -93,11 +93,11 @@ export default async function MentorPage({
           </Card>
           <Card>
             <CardHeader className="border-b">
-              <CardTitle>Messages</CardTitle>
-              <CardDescription>Messages visibles dans les boites de reception designer.</CardDescription>
+              <CardTitle>Livraisons a revoir</CardTitle>
+              <CardDescription>Reponses envoyees par les designers et en attente de validation.</CardDescription>
             </CardHeader>
             <CardContent className="pt-6 text-3xl font-semibold">
-              {data.counts.messages}
+              {data.counts.deliveries}
             </CardContent>
           </Card>
         </div>
@@ -155,6 +155,101 @@ export default async function MentorPage({
                     <p className="mt-2 font-medium capitalize">{designer.stage}</p>
                   </div>
                 </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="border-b">
+            <CardTitle>Livraisons recues</CardTitle>
+            <CardDescription>
+              Valide la proposition, credite le designer et renvoie un retour si une
+              revision est necessaire.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-6">
+            {data.pendingDeliveries.length === 0 ? (
+              <div className="rounded-2xl border border-dashed p-6 text-sm text-muted-foreground">
+                Aucune livraison n'est actuellement en attente dans cet espace mentor.
+              </div>
+            ) : (
+              data.pendingDeliveries.map((delivery) => (
+                <form
+                  key={delivery.id}
+                  action={reviewDeliveryAction}
+                  className="space-y-5 rounded-2xl border p-5"
+                >
+                  <input type="hidden" name="delivery_id" value={delivery.id} />
+                  <input type="hidden" name="mission_id" value={delivery.missionId} />
+                  <input type="hidden" name="designer_id" value={delivery.designerId} />
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.6fr)_140px_140px]">
+                    <div className="space-y-1">
+                      <p className="font-medium">{delivery.missionTitle}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {delivery.clientName} pour {delivery.designerName}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                        Recue
+                      </p>
+                      <p className="mt-2 font-medium">{delivery.submittedAt}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                        Budget
+                      </p>
+                      <p className="mt-2 font-medium">{delivery.budget}</p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 rounded-2xl border bg-muted/15 p-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                      Objet du mail
+                    </p>
+                    <p className="font-medium">{delivery.emailSubject}</p>
+                    <p className="whitespace-pre-line text-sm leading-6 text-muted-foreground">
+                      {delivery.emailBody}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                      Lien Figma
+                    </p>
+                    <a
+                      href={delivery.figmaLink}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-sm text-primary underline-offset-4 hover:underline"
+                    >
+                      {delivery.figmaLink}
+                    </a>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor={`feedback-${delivery.id}`} className="text-sm font-medium">
+                      Retour mentor
+                    </label>
+                    <textarea
+                      id={`feedback-${delivery.id}`}
+                      name="feedback_body"
+                      placeholder="Exemple : la direction est bonne, mais j'aimerais une hierarchie plus nette sur le titre et le CTA."
+                      className={textAreaClassName()}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    <Button type="submit" name="decision" value="revision" variant="outline">
+                      Demander une revision
+                    </Button>
+                    <Button type="submit" name="decision" value="validated">
+                      Valider la livraison
+                    </Button>
+                  </div>
+                </form>
               ))
             )}
           </CardContent>

@@ -68,7 +68,7 @@ export interface MentorWorkspaceData {
     designers: number;
     clients: number;
     missions: number;
-    messages: number;
+    deliveries: number;
   };
   designers: Array<{
     id: string;
@@ -85,6 +85,19 @@ export interface MentorWorkspaceData {
     clientName: string;
     status: string;
     deadline: string;
+    budget: string;
+  }>;
+  pendingDeliveries: Array<{
+    id: string;
+    missionId: string;
+    designerId: string;
+    missionTitle: string;
+    designerName: string;
+    clientName: string;
+    emailSubject: string;
+    emailBody: string;
+    figmaLink: string;
+    submittedAt: string;
     budget: string;
   }>;
 }
@@ -535,7 +548,14 @@ export async function getMentorWorkspaceData(
     return null;
   }
 
-  const [designersResult, clientsResult, missionsResult, messagesResult, recentMissionsResult] =
+  const [
+    designersResult,
+    clientsResult,
+    missionsResult,
+    deliveriesCountResult,
+    recentMissionsResult,
+    pendingDeliveriesResult,
+  ] =
     await Promise.all([
     supabase
       .from("profiles")
@@ -544,7 +564,11 @@ export async function getMentorWorkspaceData(
       .order("created_at", { ascending: false }),
     supabase.from("clients").select("id", { count: "exact", head: true }),
     supabase.from("missions").select("id", { count: "exact", head: true }),
-    supabase.from("messages").select("id", { count: "exact", head: true }),
+    supabase
+      .from("deliveries")
+      .select("id", { count: "exact", head: true })
+      .eq("mentor_id", userId)
+      .eq("status", "submitted"),
     supabase
       .from("missions")
       .select(
@@ -553,6 +577,14 @@ export async function getMentorWorkspaceData(
       .eq("mentor_id", userId)
       .order("created_at", { ascending: false })
       .limit(5),
+    supabase
+      .from("deliveries")
+      .select(
+        "id, mission_id, designer_id, email_subject, email_body, figma_link, created_at, mission:missions!deliveries_mission_id_fkey(title, budget_cents, client:clients(name)), designer:profiles!deliveries_designer_id_fkey(display_name)"
+      )
+      .eq("mentor_id", userId)
+      .eq("status", "submitted")
+      .order("created_at", { ascending: false }),
   ]);
 
   return {
@@ -562,7 +594,7 @@ export async function getMentorWorkspaceData(
       designers: designersResult.data?.length ?? 0,
       clients: clientsResult.count ?? 0,
       missions: missionsResult.count ?? 0,
-      messages: messagesResult.count ?? 0,
+      deliveries: deliveriesCountResult.count ?? 0,
     },
     designers: ((designersResult.data ?? []) as Array<Record<string, unknown>>).map((designer) => ({
       id: String(designer.id ?? ""),
@@ -591,6 +623,44 @@ export async function getMentorWorkspaceData(
         status: translateMissionStatus((mission.status as MissionStatus) ?? "new"),
         deadline: formatDeadline((mission.deadline_at as string | null) ?? null),
         budget: formatCurrency(Number(mission.budget_cents ?? 0)),
+      })
+    ),
+    pendingDeliveries: ((pendingDeliveriesResult.data ?? []) as Array<Record<string, unknown>>).map(
+      (delivery) => ({
+        id: String(delivery.id ?? ""),
+        missionId: String(delivery.mission_id ?? ""),
+        designerId: String(delivery.designer_id ?? ""),
+        missionTitle:
+          typeof delivery.mission === "object" &&
+          delivery.mission &&
+          "title" in delivery.mission
+            ? String(delivery.mission.title ?? "")
+            : "",
+        designerName:
+          typeof delivery.designer === "object" &&
+          delivery.designer &&
+          "display_name" in delivery.designer
+            ? String(delivery.designer.display_name ?? "")
+            : "",
+        clientName:
+          typeof delivery.mission === "object" &&
+          delivery.mission &&
+          "client" in delivery.mission &&
+          typeof delivery.mission.client === "object" &&
+          delivery.mission.client &&
+          "name" in delivery.mission.client
+            ? String(delivery.mission.client.name ?? "")
+            : "",
+        emailSubject: String(delivery.email_subject ?? ""),
+        emailBody: String(delivery.email_body ?? ""),
+        figmaLink: String(delivery.figma_link ?? ""),
+        submittedAt: formatActivityDate(String(delivery.created_at ?? new Date().toISOString())),
+        budget:
+          typeof delivery.mission === "object" &&
+          delivery.mission &&
+          "budget_cents" in delivery.mission
+            ? formatCurrency(Number(delivery.mission.budget_cents ?? 0))
+            : formatCurrency(0),
       })
     ),
   };

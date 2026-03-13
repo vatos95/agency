@@ -25,6 +25,10 @@ function buildRedirect(path: string, message: string, kind: "error" | "success")
   return `${path}?${params.toString()}`;
 }
 
+function clampReputation(value: number) {
+  return Math.max(0, Math.min(100, value));
+}
+
 export async function createMissionAction(formData: FormData) {
   const designerId = String(formData.get("designer_id") ?? "").trim();
   const clientName = String(formData.get("client_name") ?? "").trim();
@@ -275,6 +279,186 @@ export async function createMissionAction(formData: FormData) {
     buildRedirect(
       "/mentor",
       `Mission envoyee a ${designer.display_name}. Elle est maintenant visible dans son espace.`,
+      "success"
+    )
+  );
+}
+
+export async function reviewDeliveryAction(formData: FormData) {
+  const deliveryId = String(formData.get("delivery_id") ?? "").trim();
+  const missionId = String(formData.get("mission_id") ?? "").trim();
+  const designerId = String(formData.get("designer_id") ?? "").trim();
+  const decision = String(formData.get("decision") ?? "").trim();
+  const feedbackBody = String(formData.get("feedback_body") ?? "").trim();
+
+  if (!deliveryId || !missionId || !designerId || !decision) {
+    redirect(buildRedirect("/mentor", "Impossible de traiter cette livraison.", "error"));
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const deliveryResult = await supabase
+    .from("deliveries")
+    .select("id, status, mission_id, designer_id, mentor_id")
+    .eq("id", deliveryId)
+    .eq("mentor_id", user.id)
+    .single();
+
+  const delivery = deliveryResult.data as
+    | {
+        id: string;
+        status: Database["public"]["Enums"]["delivery_status"];
+        mission_id: string;
+        designer_id: string;
+        mentor_id: string;
+      }
+    | null;
+
+  if (!delivery || delivery.mission_id !== missionId || delivery.designer_id !== designerId) {
+    redirect(buildRedirect("/mentor", "Livraison introuvable dans ton espace mentor.", "error"));
+  }
+
+  if (delivery.status !== "submitted") {
+    redirect(buildRedirect("/mentor", "Cette livraison a deja ete traitee.", "error"));
+  }
+
+  const missionResult = await supabase
+    .from("missions")
+    .select("id, title, budget_cents, client_id")
+    .eq("id", missionId)
+    .eq("mentor_id", user.id)
+    .eq("designer_id", designerId)
+    .single();
+
+  const mission = missionResult.data as
+    | { id: string; title: string; budget_cents: number; client_id: string }
+    | null;
+
+  if (!mission) {
+    redirect(buildRedirect("/mentor", "Mission introuvable pour cette livraison.", "error"));
+  }
+
+  const designerProfileResult = await supabase
+    .from("profiles")
+    .select("id, balance_cents, reputation, display_name")
+    .eq("id", designerId)
+    .eq("mentor_id", user.id)
+    .single();
+
+  const designerProfile = designerProfileResult.data as
+    | { id: string; balance_cents: number; reputation: number; display_name: string }
+    | null;
+
+  if (!designerProfile) {
+    redirect(buildRedirect("/mentor", "Designer introuvable pour cette livraison.", "error"));
+  }
+
+  const isValidation = decision === "validated";
+  const missionStatus: MissionStatus = isValidation ? "validated" : "revision";
+  const feedbackTitle = isValidation ? "Mission validee" : "Revision demandee";
+  const safeFeedbackBody =
+    feedbackBody ||
+    (isValidation
+      ? "La proposition est validee. Merci pour la livraison."
+      : "Merci pour la proposition. Une nouvelle iteration est attendue.");
+
+  await ((supabase.from("deliveries") as unknown as {
+    update: (values: { status: Database["public"]["Enums"]["delivery_status"] }) => {
+      eq: (column: string, value: string) => Promise<unknown>;
+    };
+  }))
+    .update({ status: "reviewed" })
+    .eq("id", deliveryId);
+
+  await ((supabase.from("missions") as unknown as {
+    update: (values: { status: MissionStatus }) => {
+      eq: (column: string, value: string) => Promise<unknown>;
+    };
+  }))
+    .update({ status: missionStatus })
+    .eq("id", missionId);
+
+  await ((supabase.from("mission_feedback") as unknown as {
+    insert: (values: {
+      mission_id: string;
+      title: string;
+      body: string;
+      author_role: Database["public"]["Enums"]["app_role"];
+    }) => Promise<unknown>;
+  }))
+    .insert({
+      mission_id: missionId,
+      title: feedbackTitle,
+      body: safeFeedbackBody,
+      author_role: "mentor",
+    });
+
+  if (isValidation) {
+    const updatedBalance = designerProfile.balance_cents + mission.budget_cents;
+    const updatedReputation = clampReputation(designerProfile.reputation + 12);
+
+    await ((supabase.from("profiles") as unknown as {
+      update: (values: { balance_cents: number; reputation: number }) => {
+        eq: (column: string, value: string) => Promise<unknown>;
+      };
+    }))
+      .update({
+        balance_cents: updatedBalance,
+        reputation: updatedReputation,
+      })
+      .eq("id", designerId);
+
+    await ((supabase.from("activity_events") as unknown as {
+      insert: (values: {
+        mentor_id: string;
+        designer_id: string;
+        mission_id: string;
+        title: string;
+        description: string;
+      }) => Promise<unknown>;
+    }))
+      .insert({
+        mentor_id: user.id,
+        designer_id: designerId,
+        mission_id: missionId,
+        title: "Mission validee",
+        description: `${mission.title} a ete validee et le budget a ete credite au compte.`,
+      });
+  } else {
+    await ((supabase.from("activity_events") as unknown as {
+      insert: (values: {
+        mentor_id: string;
+        designer_id: string;
+        mission_id: string;
+        title: string;
+        description: string;
+      }) => Promise<unknown>;
+    }))
+      .insert({
+        mentor_id: user.id,
+        designer_id: designerId,
+        mission_id: missionId,
+        title: "Revision demandee",
+        description: `${mission.title} necessite une nouvelle iteration avant validation.`,
+      });
+  }
+
+  revalidatePath("/mentor");
+  revalidatePath("/");
+
+  redirect(
+    buildRedirect(
+      "/mentor",
+      isValidation
+        ? `Livraison validee pour ${designerProfile.display_name}.`
+        : `Une revision a ete demandee a ${designerProfile.display_name}.`,
       "success"
     )
   );
