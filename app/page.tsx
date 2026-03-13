@@ -23,7 +23,7 @@ export default async function HomePage() {
     redirect("/mentor");
   }
 
-  const dashboardData = await getDashboardData(supabase, user.id);
+  const dashboardData = await getDashboardData(supabase, user.id, profile);
 
   if (!dashboardData) {
     redirect("/login");
