@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { createClient } from "@/lib/supabase/server";
-import { getMentorWorkspaceData } from "@/lib/dashboard-data";
+import { getCurrentProfile, getMentorWorkspaceData } from "@/lib/dashboard-data";
 import { createMissionAction, reviewDeliveryAction } from "./actions";
 
 function fieldClassName() {
@@ -35,7 +35,13 @@ export default async function MentorPage({
     redirect("/login");
   }
 
-  const data = await getMentorWorkspaceData(supabase, user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
+
+  if (!profile) {
+    redirect("/login");
+  }
+
+  const data = await getMentorWorkspaceData(supabase, user.id, profile);
   const params = searchParams ? await searchParams : undefined;
 
   if (!data) {
