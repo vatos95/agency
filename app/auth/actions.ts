@@ -8,6 +8,11 @@ function buildErrorRedirect(path: string, message: string) {
   return `${path}?${params.toString()}`;
 }
 
+async function resolvePendingMentorLink() {
+  const supabase = await createClient();
+  await supabase.rpc("link_current_designer_to_pending_mentor");
+}
+
 export async function signInAction(formData: FormData) {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -42,6 +47,10 @@ export async function signInAction(formData: FormData) {
 
   const profile = profileResult.data as { role: "mentor" | "designer" } | null;
 
+  if (profile?.role === "designer") {
+    await resolvePendingMentorLink();
+  }
+
   redirect(profile?.role === "mentor" ? "/mentor" : "/");
 }
 
@@ -73,29 +82,8 @@ export async function signUpAction(formData: FormData) {
     redirect(buildErrorRedirect("/signup", error.message));
   }
 
-  if (data.user && role === "designer" && mentorEmail) {
-    const mentorProfileResult = await supabase
-      .from("profiles")
-      .select("id, role")
-      .eq("email", mentorEmail)
-      .maybeSingle();
-
-    const mentorProfile = mentorProfileResult.data as
-      | { id: string; role: "mentor" | "designer" }
-      | null;
-
-    if (mentorProfile?.role === "mentor") {
-      await ((supabase.from("profiles") as unknown as {
-        update: (values: { mentor_id: string; pending_mentor_email: null }) => {
-          eq: (column: string, value: string) => Promise<unknown>;
-        };
-      }))
-        .update({
-          mentor_id: mentorProfile.id,
-          pending_mentor_email: null,
-        })
-        .eq("id", data.user.id);
-    }
+  if (data.user && role === "designer" && mentorEmail && data.session) {
+    await resolvePendingMentorLink();
   }
 
   if (!data.session) {
