@@ -18,6 +18,11 @@ type ProfileRow = Database["public"]["Tables"]["profiles"]["Row"];
 type MessageStatus = Database["public"]["Enums"]["message_status"];
 type MessageUrgency = Database["public"]["Enums"]["message_urgency"];
 type MissionStatus = Database["public"]["Enums"]["mission_status"];
+const DESIGNER_MESSAGES_LIMIT = 12;
+const DESIGNER_MISSIONS_LIMIT = 12;
+const DESIGNER_CLIENTS_LIMIT = 8;
+const MENTOR_PENDING_DELIVERIES_LIMIT = 6;
+const MENTOR_RECENT_MISSIONS_LIMIT = 5;
 
 export interface DashboardViewer {
   id: string;
@@ -273,9 +278,10 @@ export async function getCurrentProfile(supabase: AppSupabaseClient, userId: str
 
 export async function getDashboardData(
   supabase: AppSupabaseClient,
-  userId: string
+  userId: string,
+  profileOverride?: ProfileRow | null
 ): Promise<DashboardData | null> {
-  const profile = await getCurrentProfile(supabase, userId);
+  const profile = profileOverride ?? (await getCurrentProfile(supabase, userId));
 
   if (!profile || profile.role !== "designer") {
     return null;
@@ -293,17 +299,20 @@ export async function getDashboardData(
       .select(
         "id, mission_id, client_id, sender_name, subject, preview, body, status, urgency, deadline_at, budget_cents, deliverables, created_at, client:clients(name)"
       )
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(DESIGNER_MESSAGES_LIMIT),
     supabase
       .from("missions")
       .select(
         "id, mentor_id, client_id, title, status, objective, deadline_at, budget_cents, note, deliverables, expectations, figma_link, delivery_subject, delivery_body, created_at, client:clients(name)"
       )
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(DESIGNER_MISSIONS_LIMIT),
     supabase
       .from("clients")
       .select("id, name, sector, tone, expectation_level, summary, expectations, created_at")
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(DESIGNER_CLIENTS_LIMIT),
     supabase
       .from("activity_events")
       .select("id, title, description, created_at")
@@ -540,9 +549,10 @@ export async function getDashboardData(
 
 export async function getMentorWorkspaceData(
   supabase: AppSupabaseClient,
-  userId: string
+  userId: string,
+  profileOverride?: ProfileRow | null
 ): Promise<MentorWorkspaceData | null> {
-  const profile = await getCurrentProfile(supabase, userId);
+  const profile = profileOverride ?? (await getCurrentProfile(supabase, userId));
 
   if (!profile || profile.role !== "mentor") {
     return null;
