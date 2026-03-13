@@ -562,8 +562,14 @@ export async function getMentorWorkspaceData(
       .select("id, display_name, email, balance_cents, reputation, career_stage")
       .eq("mentor_id", userId)
       .order("created_at", { ascending: false }),
-    supabase.from("clients").select("id", { count: "exact", head: true }),
-    supabase.from("missions").select("id", { count: "exact", head: true }),
+    supabase
+      .from("clients")
+      .select("id", { count: "exact", head: true })
+      .eq("mentor_id", userId),
+    supabase
+      .from("missions")
+      .select("id", { count: "exact", head: true })
+      .eq("mentor_id", userId),
     supabase
       .from("deliveries")
       .select("id", { count: "exact", head: true })
@@ -576,7 +582,7 @@ export async function getMentorWorkspaceData(
       )
       .eq("mentor_id", userId)
       .order("created_at", { ascending: false })
-      .limit(5),
+      .limit(MENTOR_RECENT_MISSIONS_LIMIT),
     supabase
       .from("deliveries")
       .select(
@@ -584,7 +590,8 @@ export async function getMentorWorkspaceData(
       )
       .eq("mentor_id", userId)
       .eq("status", "submitted")
-      .order("created_at", { ascending: false }),
+      .order("created_at", { ascending: false })
+      .limit(MENTOR_PENDING_DELIVERIES_LIMIT),
   ]);
 
   return {
